@@ -12,6 +12,11 @@
    / \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \
    \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \*/
 
+// TO DO
+// Debounce switches
+
+
+
 /*
 
   To read Power switch
@@ -60,8 +65,22 @@
 #define SEGMENT1        // 10
 #define SEGMENT2        // 
 
+//#define SEGMENTA
+//#define SEGMENTA
+//#define SEGMENTA
+//#define SEGMENTA
+//#define SEGMENTA
+
+
 #define BLANK 10
 #define COLON 1
+#define P     11
+#define R     12
+#define D     13
+#define W_1   14
+#define W_2   15
+#define C     16
+#define NUMERAL_MAX   16
 
 ///////////////// Switch matrix ///////////////////////
 #define SW_PIN_PWR_CLK          15
@@ -80,14 +99,14 @@
 #define SW_START_C2_WEI_CLK 1
 
 // SWITCHES
-#define SW_PWR    0
-#define SW_STOP   1
-#define SW_C1     2
-#define SW_GRL    3
-#define SW_START  4
-#define SW_C2     5
-#define SW_WEI    6
-#define SW_CLK    7
+#define SW_PWR    1
+#define SW_STOP   7
+#define SW_C1     3
+#define SW_GRL    5
+#define SW_START  2
+#define SW_C2     6
+#define SW_WEI    4
+#define SW_CLK    0
 
 #define NUM_SWITCHES 8
 #define NUM_ROWS  4
@@ -97,17 +116,30 @@
 ///////////////// ENCODER ///////////////////////
 #define ENCODERA  2 // Use ext interupts
 #define ENCODERB  3 // Use ext interupts
+#define ENCODER_DIV 4
 
 ///////////////// BUZZER ///////////////////////
-#define BUZZER 5
+#define BUZZER        5
+#define TONE_WELD     1000
+#define TONE_UP       800
+#define TONE_DOWN     600
+#define TONE_DURATION 60
+
+///////////////// SSR ///////////////////////
+#define SSR_PIN 13
 
 #define FRED 1
 
 ///////////////// State machine stuff ///////////////////////
-#define STATE_IDLE    0
-#define STATE_PREWELD 2
-#define STATE_DWELL   3
-#define STATE_WELD    4
+#define STATE_IDLE            0
+#define STATE_CHANGE_PREWELD  1
+#define STATE_CHANGE_DWELL    2
+#define STATE_CHANGE_WELD     3
+#define STATE_ACTIVE          4
+#define STATE_PREWELD         5
+#define STATE_DWELL           6
+#define STATE_WELD            7
+#define STATE_WELD_COUNT      8
 
 ///////////////// Switch variables ///////////////////////
 bool switchState[NUM_SWITCHES];
@@ -119,20 +151,31 @@ unsigned int period = 0;
 bool updateDisplay = 0;
 unsigned int displayHolder[NUM_DIGITS] = {BLANK, BLANK, BLANK, BLANK, BLANK};
 
-//                      zero      one       two         three   four      five      six         seven   eight     nine        blank
-const int numeral[] = {B1000000, B1111001, B0100100, B0110000, B0011001, B0010010, B0000010, B1111000, B0000000, B0010000, B1111111};//0b011000000, 0b110110010};
+//                      zero      one       two         three   four      five      six         seven   eight     nine        blank   P R E W_1 W_2
+const int numeral[] = {B1000000, B1111001, B0100100, B0110000, B0011001, B0010010, B0000010, B1111000, B0000000, B0010000,
+                       // blank        P         R         D         W_1     W_2      C
+                       B1111111, B0001100, B1001100, B0100001, B1000011, B1100001, B1000110
+                      };
 int currentDigit = 1;
 
 ///////////////// State machine variables ///////////////////////
 unsigned int state = STATE_IDLE;
+unsigned int prevoiusState = STATE_IDLE;
 
 ///////////////// Other variables ///////////////////////
 
-// Weld times 
+// Weld times
 // As the SSR is zero switching times will need to be in multiples of 1/100 HZ = 10 milliseconds
-unsigned int preWeldTime = 50; //milliseconds // 50ms is a good place to start
-unsigned int dwellTime = 20;    // Don't know
-unsigned int weldTime = 50;   // Between 50 and 250ms
+unsigned int preWeldTime = 5; // 10 x milliseconds 5 = 50 milliseconds// 50ms is a good place to start
+unsigned int dwellTime = 2;    // Don't know
+unsigned int weldTime = 5;   // Between 50 and 250ms
+
+unsigned int elapsedTime = 0; //milliseconds
+unsigned int preWeldElapsedTime = 0;
+unsigned int dwellElapsedTime = 0;
+unsigned int weldElapsedTime = 0;
+
+unsigned long weldCount = 0;
 
 long encoderOldPosition  = -999;
 long encoderNewPosition = 0;
@@ -169,6 +212,9 @@ void setup()
 
   pinMode(SW_PIN_PWR_CLK, OUTPUT);
 
+  pinMode(SSR_PIN, OUTPUT);
+  digitalWrite(SSR_PIN, LOW);
+
 
   // Timer0 is already used for millis() - we'll just interrupt somewhere
   // in the middle and call the "Compare A" function below
@@ -197,8 +243,14 @@ void UpdateSwitches()
 
 }
 // Interrupt is called once a millisecond
+unsigned int multi = 0;
 SIGNAL(TIMER0_COMPA_vect)
 {
+  if (multi++ > 10)
+  {
+    multi = 0;
+    elapsedTime++;
+  }
   if (period++ > FRED)
   {
     period = 0;
@@ -225,7 +277,7 @@ void enableDigit(int digit)
 
 void writeNumeral(int num)
 {
-  if (num > 9) num = 10; // Make it blank
+  if (num > NUMERAL_MAX ) num = 10; // Make it blank
   int seg = 0;
   digitalWrite(SEGMENTA, numeral[num] & 1 << seg++);
   digitalWrite(SEGMENTB, numeral[num] & 1 << seg++);
@@ -241,8 +293,8 @@ void UpdateEncoder()
   encoderNewPosition = myEnc.read();
   if (encoderNewPosition != encoderOldPosition)
   {
-    if (encoderNewPosition > encoderOldPosition) tone(BUZZER, 1200, 80);
-    else tone(BUZZER, 600, 80);
+    if (encoderNewPosition > encoderOldPosition) tone(BUZZER, TONE_UP, TONE_DURATION);
+    else tone(BUZZER, TONE_DOWN, TONE_DURATION);
     if (encoderNewPosition > 399)
     {
       myEnc.write(399);
@@ -260,48 +312,192 @@ void UpdateEncoder()
 // the loop function runs over and over again forever
 void loop()
 {
-  UpdateEncoder();
+  //  UpdateEncoder();
   switch (state)
   {
     case STATE_IDLE:
-      //Serial.println("IDLE");
-      if (displayHolder[4]  == COLON) displayHolder[4] = BLANK;
-      else displayHolder[4] = COLON;
-      //displayHolder[4]=8;
-      preWeldTime = encoderNewPosition / 4;
+      if (prevoiusState != state) // First time in so set a few things up
+      {
+        prevoiusState = state;
+        Serial.println("Idle");
+      }
+//      if (displayHolder[4]  == COLON) displayHolder[4] = BLANK;
+//      else displayHolder[4] = COLON;
+      displayHolder[4] = COLON;
       if (preWeldTime / 10 < 1) displayHolder[0] = BLANK;
       else displayHolder[0] = preWeldTime / 10;
       displayHolder[1] = preWeldTime - ((preWeldTime / 10) * 10);
-      //if (preWeldTime >22) preWeldTime = 0;
 
       if (weldTime / 10 < 1) displayHolder[2] = BLANK;
       else displayHolder[2] = weldTime / 10;
       displayHolder[3] = weldTime - ((weldTime / 10) * 10);
-      if (weldTime++ > 99) weldTime = 0;
 
-      for (int j = 0; j < NUM_SWITCHES; j++)
-      {
-        Serial.print(switchState[j]);
-        Serial.print(",");
-      }
-      Serial.println("");
-      delay(200);
+      //      for (int j = 0; j < 5; j++)
+      //      {
+      //        for (int i = 0; i < 5; i++)
+      //        {
+      //          if (i == j) displayHolder[i] = 8;
+      //          else displayHolder[i] = BLANK;
+      //        }
+      //        delay(1000);
+      //      }
 
-      //Serial.println(powerSwitchState);
+      //Serial.println("");
 
-      //delay(200);
+      if  (switchState[SW_CLK]) state = STATE_CHANGE_PREWELD;
+      if  (switchState[SW_WEI]) state = STATE_CHANGE_DWELL;
+      if  (switchState[SW_GRL]) state = STATE_CHANGE_WELD;
+      if  (switchState[SW_C1])  state = STATE_WELD_COUNT;
+      if  (switchState[SW_PWR]) state = STATE_ACTIVE;
+
       break;
 
+    case STATE_CHANGE_PREWELD:
+      if (prevoiusState != state) // First time in so set a few things up
+      {
+        prevoiusState = state;
+        Serial.println("Change Preweld");
+        displayHolder[0] = P;
+        displayHolder[1] = R;
+        myEnc.write(preWeldTime * ENCODER_DIV);
+      }
+      UpdateEncoder();
+      preWeldTime = encoderNewPosition / ENCODER_DIV;
+      if (preWeldTime / 10 < 1) displayHolder[2] = BLANK;
+      else displayHolder[2] = preWeldTime / 10;
+      displayHolder[3] = preWeldTime - ((preWeldTime / 10) * 10);
+      if  (switchState[SW_C2]) state = STATE_IDLE;
+      break;
+
+    case STATE_CHANGE_DWELL:
+      if (prevoiusState != state) // First time in so set a few things up
+      {
+        prevoiusState = state;
+        Serial.println("Change Dwell");
+        displayHolder[0] = D;
+        displayHolder[1] = BLANK;
+        myEnc.write(dwellTime * ENCODER_DIV);
+      }
+      UpdateEncoder();
+      dwellTime = encoderNewPosition / ENCODER_DIV;
+      if (dwellTime / 10 < 1) displayHolder[2] = BLANK;
+      else displayHolder[2] = dwellTime / 10;
+      displayHolder[3] = dwellTime - ((dwellTime / 10) * 10);
+      if  (switchState[SW_C2]) state = STATE_IDLE;
+      break;
+
+    case STATE_CHANGE_WELD:
+      if (prevoiusState != state) // First time in so set a few things up
+      {
+        prevoiusState = state;
+        Serial.println("Change Weld");
+        displayHolder[0] = W_1;
+        displayHolder[1] = W_2;
+        myEnc.write(weldTime * ENCODER_DIV);
+      }
+      UpdateEncoder();
+      weldTime = encoderNewPosition / ENCODER_DIV;
+      if (weldTime / 10 < 1) displayHolder[2] = BLANK;
+      else displayHolder[2] = weldTime / 10;
+      displayHolder[3] = weldTime - ((weldTime / 10) * 10);
+      if  (switchState[SW_C2]) state = STATE_IDLE;
+      break;
+
+    case STATE_WELD_COUNT:
+      if (prevoiusState != state) // First time in so set a few things up
+      {
+        prevoiusState = state;
+        Serial.println("Weld Count");
+        Serial.println(weldCount);
+        displayHolder[0] = C;
+        displayHolder[1] = BLANK;
+      }
+      if (weldCount / 10 < 1) displayHolder[2] = BLANK;
+      else displayHolder[2] = weldCount / 10;
+      displayHolder[3] = weldCount - ((weldCount / 10) * 10);
+      //      if  (switchState[SW_C1]) weldCount = 0;// Need to debounce before we can reset
+      if  (switchState[SW_C2]) state = STATE_IDLE;
+      break;
+
+    case STATE_ACTIVE:
+      if (prevoiusState != state) // First time in so set a few things up
+      {
+        prevoiusState = state;
+        Serial.println("Active");
+        displayHolder[4] = 8;
+        delay(100);
+      }
+
+      if  (switchState[SW_C2]) state = STATE_IDLE;
+      if  (switchState[SW_STOP]) state = STATE_IDLE;
+      if  (switchState[SW_START]) state = STATE_PREWELD;
+      break;
+
+
     case STATE_PREWELD:
-      Serial.println("Preweld");
+      if (prevoiusState != state) // First time in so set a few things up
+      {
+        Serial.print("Welding.....");
+        elapsedTime = 0;
+        digitalWrite(SSR_PIN, HIGH);
+        tone(BUZZER, TONE_WELD);
+        prevoiusState = state;
+
+      }
+      if (elapsedTime > preWeldTime)
+      {
+        digitalWrite(SSR_PIN, LOW);
+        noTone(BUZZER);
+        state = STATE_DWELL;
+      }
+      if  (switchState[SW_STOP])
+      {
+        digitalWrite(SSR_PIN, LOW);
+        Serial.println("..... Aborted!");
+        state = STATE_IDLE;
+        noTone(BUZZER);
+      }
       break;
 
     case STATE_DWELL:
-      Serial.println("Preweld");
+      if (prevoiusState != state) // First time in so set a few things up
+      {
+        elapsedTime = 0;
+        prevoiusState = state;
+        //        Serial.println("Dwell");
+      }
+      if (elapsedTime > dwellTime)state = STATE_WELD;
+      if  (switchState[SW_STOP])
+      {
+        state = STATE_IDLE;
+        Serial.println("..... Aborted!");
+      }
       break;
 
     case STATE_WELD:
-      Serial.println("Weld");
+      if (prevoiusState != state) // First time in so set a few things up
+      {
+        elapsedTime = 0;
+        digitalWrite(SSR_PIN, HIGH);
+        tone(BUZZER, TONE_WELD);
+        prevoiusState = state;
+        //        Serial.println("Weld");
+      }
+      if (elapsedTime > weldTime)
+      {
+        digitalWrite(SSR_PIN, LOW);
+        Serial.println(".....complete");
+        weldCount++;
+        noTone(BUZZER);
+        state = STATE_ACTIVE;
+      }
+      if  (switchState[SW_STOP])
+      {
+        digitalWrite(SSR_PIN, LOW);
+        Serial.println("..... Aborted!");
+        state = STATE_IDLE;
+        noTone(BUZZER);
+      }
       break;
   }
 
