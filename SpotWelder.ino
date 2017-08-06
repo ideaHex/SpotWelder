@@ -82,7 +82,7 @@
 #define C     16
 #define NUMERAL_MAX   16
 
-///////////////// Switch matrix ///////////////////////
+///////////////// Switches ///////////////////////
 #define SW_PIN_PWR_CLK          15
 #define SW_PIN_START_C1         16//SEGMENTF//16
 #define SW_PIN_GRL_WEI          12//SEGMENTG//12
@@ -107,10 +107,17 @@
 #define SW_C2     6
 #define SW_WEI    4
 #define SW_CLK    0
+#define SW_FOOT   8   // Seperate switch
 
-#define NUM_SWITCHES 8
+#define NUM_SWITCHES 8  // In Matrix
 #define NUM_ROWS  4
 #define NUM_COLS 2
+
+#define SW_PIN_FOOT 17
+
+#define SW_DOWN  1// held down
+#define SW_UP    0// Not held down
+#define SW_REL   2// Has bee released but not activated on
 
 
 ///////////////// ENCODER ///////////////////////
@@ -120,10 +127,10 @@
 
 ///////////////// BUZZER ///////////////////////
 #define BUZZER        5
-#define TONE_WELD     1000
-#define TONE_UP       800
-#define TONE_DOWN     600
-#define TONE_DURATION 60
+#define TONE_WELD     0//1000
+#define TONE_UP       0//800
+#define TONE_DOWN     0//600
+#define TONE_DURATION 0//60
 
 ///////////////// SSR ///////////////////////
 #define SSR_PIN 13
@@ -142,7 +149,7 @@
 #define STATE_WELD_COUNT      8
 
 ///////////////// Switch variables ///////////////////////
-bool switchState[NUM_SWITCHES];
+unsigned int switchState[NUM_SWITCHES];
 unsigned int switchRows[NUM_ROWS] = {SW_PIN_PWR_CLK, SW_PIN_START_C1, SW_PIN_GRL_WEI, SW_PIN_STOP_C2};
 unsigned int switchCols[NUM_COLS] = {SW_PIN_PWR_STOP_C1_GRL, SW_PIN_START_C2_WEI_CLK};
 
@@ -225,6 +232,8 @@ void setup()
 
 void UpdateSwitches()
 {
+  int sw;
+
   for (int row = 0; row < NUM_ROWS; row++)
   {
     // Set all rows low except the one we are wanting to check
@@ -235,13 +244,30 @@ void UpdateSwitches()
     }
     pinMode(SW_PIN_START_C2_WEI_CLK, INPUT);
     pinMode(SW_PIN_PWR_STOP_C1_GRL, INPUT);
-    switchState[2 * row] = digitalRead(SW_PIN_START_C2_WEI_CLK);
-    switchState[(2 * row) + 1] = digitalRead(SW_PIN_PWR_STOP_C1_GRL);
+
+    sw = digitalRead(SW_PIN_START_C2_WEI_CLK);
+    if (sw == SW_DOWN)  switchState[2 * row] = SW_DOWN;
+    else if ( (switchState[2 * row] == SW_UP) && (sw == SW_UP) ) switchState[2 * row] = SW_UP;
+    else if ( (switchState[2 * row] == SW_REL) && (sw == SW_UP) ) switchState[2 * row] = SW_UP;
+    else switchState[2 * row] = SW_REL;
+
+    sw = digitalRead(SW_PIN_PWR_STOP_C1_GRL);
+    if (sw == SW_DOWN)  switchState[(2 * row) + 1] = SW_DOWN;
+    else if ( (switchState[(2 * row) + 1]  == SW_UP) && (sw == SW_UP) ) switchState[(2 * row) + 1]  = SW_UP;
+    else if ( (switchState[(2 * row) + 1] == SW_REL) && (sw == SW_UP) ) switchState[(2 * row) + 1]  = SW_UP;
+    else switchState[(2 * row) + 1]  = SW_REL;
+
     pinMode(SW_PIN_START_C2_WEI_CLK, OUTPUT);
     pinMode(SW_PIN_PWR_STOP_C1_GRL, OUTPUT);
-  }
+   }
 
+  sw = !digitalRead(SW_PIN_FOOT);
+  if (sw == SW_DOWN)  switchState[SW_FOOT] = SW_DOWN;
+  else if ( (switchState[SW_FOOT] == SW_UP) && (sw == SW_UP) ) switchState[SW_FOOT] = SW_UP;
+  else if ( (switchState[SW_FOOT] == SW_REL) && (sw == SW_UP) ) switchState[SW_FOOT]  = SW_UP;
+  else switchState[SW_FOOT]  = SW_REL;
 }
+
 // Interrupt is called once a millisecond
 unsigned int multi = 0;
 SIGNAL(TIMER0_COMPA_vect)
@@ -312,7 +338,15 @@ void UpdateEncoder()
 // the loop function runs over and over again forever
 void loop()
 {
-  //  UpdateEncoder();
+  //  //  UpdateEncoder();
+  for (int j = 0; j < 9; j++)
+  {
+    Serial.print(switchState[j]);
+    Serial.print(", ");
+    delay(10);
+  }
+  Serial.println("");
+
   switch (state)
   {
     case STATE_IDLE:
@@ -321,8 +355,8 @@ void loop()
         prevoiusState = state;
         Serial.println("Idle");
       }
-//      if (displayHolder[4]  == COLON) displayHolder[4] = BLANK;
-//      else displayHolder[4] = COLON;
+      //      if (displayHolder[4]  == COLON) displayHolder[4] = BLANK;
+      //      else displayHolder[4] = COLON;
       displayHolder[4] = COLON;
       if (preWeldTime / 10 < 1) displayHolder[0] = BLANK;
       else displayHolder[0] = preWeldTime / 10;
@@ -344,11 +378,31 @@ void loop()
 
       //Serial.println("");
 
-      if  (switchState[SW_CLK]) state = STATE_CHANGE_PREWELD;
-      if  (switchState[SW_WEI]) state = STATE_CHANGE_DWELL;
-      if  (switchState[SW_GRL]) state = STATE_CHANGE_WELD;
-      if  (switchState[SW_C1])  state = STATE_WELD_COUNT;
-      if  (switchState[SW_PWR]) state = STATE_ACTIVE;
+      if  (switchState[SW_CLK] == SW_REL)
+      {
+        switchState[SW_CLK] = SW_UP;
+        state = STATE_CHANGE_PREWELD;
+      }
+      else if  (switchState[SW_WEI] == SW_REL)
+      {
+        switchState[SW_WEI] = SW_UP;
+        state = STATE_CHANGE_DWELL;
+      }
+      else if  (switchState[SW_GRL] == SW_REL)
+      {
+        switchState[SW_GRL] = SW_UP;
+        state = STATE_CHANGE_WELD;
+      }
+      else if  (switchState[SW_C1] == SW_REL)
+      {
+        switchState[SW_C1] = SW_UP;
+        state = STATE_WELD_COUNT;
+      }
+      else if  (switchState[SW_PWR] == SW_REL)
+      {
+        switchState[SW_PWR] = SW_UP;
+        state = STATE_ACTIVE;
+      }
 
       break;
 
@@ -366,7 +420,12 @@ void loop()
       if (preWeldTime / 10 < 1) displayHolder[2] = BLANK;
       else displayHolder[2] = preWeldTime / 10;
       displayHolder[3] = preWeldTime - ((preWeldTime / 10) * 10);
-      if  (switchState[SW_C2]) state = STATE_IDLE;
+
+      if  (switchState[SW_C2] == SW_REL)
+      {
+        switchState[SW_C2] = SW_UP;
+        state = STATE_IDLE;
+      }
       break;
 
     case STATE_CHANGE_DWELL:
@@ -383,7 +442,12 @@ void loop()
       if (dwellTime / 10 < 1) displayHolder[2] = BLANK;
       else displayHolder[2] = dwellTime / 10;
       displayHolder[3] = dwellTime - ((dwellTime / 10) * 10);
-      if  (switchState[SW_C2]) state = STATE_IDLE;
+
+      if  (switchState[SW_C2] == SW_REL)
+      {
+        switchState[SW_C2] = SW_UP;
+        state = STATE_IDLE;
+      }
       break;
 
     case STATE_CHANGE_WELD:
@@ -400,7 +464,12 @@ void loop()
       if (weldTime / 10 < 1) displayHolder[2] = BLANK;
       else displayHolder[2] = weldTime / 10;
       displayHolder[3] = weldTime - ((weldTime / 10) * 10);
-      if  (switchState[SW_C2]) state = STATE_IDLE;
+
+      if  (switchState[SW_C2] == SW_REL)
+      {
+        switchState[SW_C2] = SW_UP;
+        state = STATE_IDLE;
+      }
       break;
 
     case STATE_WELD_COUNT:
@@ -416,7 +485,12 @@ void loop()
       else displayHolder[2] = weldCount / 10;
       displayHolder[3] = weldCount - ((weldCount / 10) * 10);
       //      if  (switchState[SW_C1]) weldCount = 0;// Need to debounce before we can reset
-      if  (switchState[SW_C2]) state = STATE_IDLE;
+
+      if  (switchState[SW_C2] == SW_REL)
+      {
+        switchState[SW_C2] = SW_UP;
+        state = STATE_IDLE;
+      }
       break;
 
     case STATE_ACTIVE:
@@ -428,9 +502,26 @@ void loop()
         delay(100);
       }
 
-      if  (switchState[SW_C2]) state = STATE_IDLE;
-      if  (switchState[SW_STOP]) state = STATE_IDLE;
-      if  (switchState[SW_START]) state = STATE_PREWELD;
+      if  (switchState[SW_C2] == SW_REL)
+      {
+        switchState[SW_C2] = SW_UP;
+        state = STATE_IDLE;
+      }
+      if  (switchState[SW_STOP] == SW_REL)
+      {
+        switchState[SW_STOP] = SW_UP;
+        state = STATE_IDLE;
+      }
+      if  (switchState[SW_START] == SW_REL)
+      {
+        switchState[SW_START] = SW_UP;
+        state = STATE_PREWELD;
+      }
+      if  (switchState[SW_PIN_FOOT] == SW_REL)
+      {
+        switchState[SW_PIN_FOOT] = SW_UP;
+        state = STATE_PREWELD;
+      }
       break;
 
 
@@ -450,8 +541,9 @@ void loop()
         noTone(BUZZER);
         state = STATE_DWELL;
       }
-      if  (switchState[SW_STOP])
+      if  (switchState[SW_STOP] == SW_REL)
       {
+        switchState[SW_STOP] = SW_UP;
         digitalWrite(SSR_PIN, LOW);
         Serial.println("..... Aborted!");
         state = STATE_IDLE;
@@ -467,8 +559,9 @@ void loop()
         //        Serial.println("Dwell");
       }
       if (elapsedTime > dwellTime)state = STATE_WELD;
-      if  (switchState[SW_STOP])
+      if  (switchState[SW_STOP] == SW_REL)
       {
+        switchState[SW_STOP] = SW_UP;
         state = STATE_IDLE;
         Serial.println("..... Aborted!");
       }
@@ -491,8 +584,9 @@ void loop()
         noTone(BUZZER);
         state = STATE_ACTIVE;
       }
-      if  (switchState[SW_STOP])
+      if  (switchState[SW_STOP] == SW_REL)
       {
+        switchState[SW_STOP] = SW_UP;
         digitalWrite(SSR_PIN, LOW);
         Serial.println("..... Aborted!");
         state = STATE_IDLE;
