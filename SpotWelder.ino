@@ -8,6 +8,12 @@
       www.ideahex.com
 
    Written by Damian Kleiss
+
+
+   Change Pre weld time
+   Change Weld time
+   Arm 
+   Fire
     _   _   _   _   _   _   _   _   _   _   _   _   _   _   _   _   _   _   _   _
    / \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \
    \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \*/
@@ -48,8 +54,8 @@
 #include <Encoder.h>
 
 ///////////////// LED Display ///////////////////////
-#define DIGIT0  18  //1 Active High
-#define DIGIT1  19  //2
+#define DIGIT0  18  // A4, 1 Active High
+#define DIGIT1  19  // A5, 2
 #define DIGIT2  14
 #define DIGIT3  6
 #define DIGIT4  4
@@ -60,17 +66,10 @@
 #define SEGMENTC    9   // 12  ALSO power switch
 #define SEGMENTD    10  // 11
 #define SEGMENTE    11  // 9
-#define SEGMENTF    16  // 7  ALSO CLOCK SWITCH
+#define SEGMENTF    16  // A2, 7  ALSO CLOCK SWITCH
 #define SEGMENTG    12  // 8
 #define SEGMENT1        // 10
 #define SEGMENT2        // 
-
-//#define SEGMENTA
-//#define SEGMENTA
-//#define SEGMENTA
-//#define SEGMENTA
-//#define SEGMENTA
-
 
 #define BLANK 10
 #define COLON 1
@@ -83,12 +82,12 @@
 #define NUMERAL_MAX   16
 
 ///////////////// Switches ///////////////////////
-#define SW_PIN_PWR_CLK          15
-#define SW_PIN_START_C1         16//SEGMENTF//16
-#define SW_PIN_GRL_WEI          12//SEGMENTG//12
-#define SW_PIN_STOP_C2          11//SEGMENTE//11
-#define SW_PIN_PWR_STOP_C1_GRL  8//SEGMENTB//8
-#define SW_PIN_START_C2_WEI_CLK 7//SEGMENTF//7
+#define SW_PIN_PWR_CLK          15  // A1
+#define SW_PIN_START_C1         16  // A2 SEGMENTF//16
+#define SW_PIN_GRL_WEI          12  //SEGMENTG//12
+#define SW_PIN_STOP_C2          11  //SEGMENTE//11
+#define SW_PIN_PWR_STOP_C1_GRL  8   //SEGMENTB//8
+#define SW_PIN_START_C2_WEI_CLK 7   //SEGMENTF//7
 // Rows
 #define SW_PWR_CLK          0
 #define SW_START_C1         1
@@ -109,15 +108,15 @@
 #define SW_CLK    0
 #define SW_FOOT   8   // Seperate switch
 
-#define NUM_SWITCHES 8  // In Matrix
+#define NUM_SWITCHES 9  // In Matrix
 #define NUM_ROWS  4
 #define NUM_COLS 2
 
 #define SW_PIN_FOOT 17
 
-#define SW_DOWN  1// held down
-#define SW_UP    0// Not held down
-#define SW_REL   2// Has bee released but not activated on
+const byte SW_DOWN = 1;// held down
+const byte SW_UP   = 0;// Not held down
+const byte SW_REL  = 2;// Has been released but not activated on
 
 
 ///////////////// ENCODER ///////////////////////
@@ -127,15 +126,20 @@
 
 ///////////////// BUZZER ///////////////////////
 #define BUZZER        5
-#define TONE_WELD     0//1000
-#define TONE_UP       0//800
-#define TONE_DOWN     0//600
-#define TONE_DURATION 0//60
+#define TONE_WELD     1000
+#define TONE_UP       800
+#define TONE_DOWN     600
+#define TONE_DURATION 60
 
 ///////////////// SSR ///////////////////////
 #define SSR_PIN 13
 
-#define FRED 1
+#define FRED 1  // Number of milliseconds between checking switches
+
+
+///////////////// Unused but connected pins ///////////////////////
+//#define SPARE_DISPLAY 20
+//#define RELAY_VPC 21
 
 ///////////////// State machine stuff ///////////////////////
 #define STATE_IDLE            0
@@ -149,25 +153,25 @@
 #define STATE_WELD_COUNT      8
 
 ///////////////// Switch variables ///////////////////////
-unsigned int switchState[NUM_SWITCHES];
-unsigned int switchRows[NUM_ROWS] = {SW_PIN_PWR_CLK, SW_PIN_START_C1, SW_PIN_GRL_WEI, SW_PIN_STOP_C2};
-unsigned int switchCols[NUM_COLS] = {SW_PIN_PWR_STOP_C1_GRL, SW_PIN_START_C2_WEI_CLK};
+byte switchState[NUM_SWITCHES];
+byte switchRows[NUM_ROWS] = {SW_PIN_PWR_CLK, SW_PIN_START_C1, SW_PIN_GRL_WEI, SW_PIN_STOP_C2};
+byte switchCols[NUM_COLS] = {SW_PIN_PWR_STOP_C1_GRL, SW_PIN_START_C2_WEI_CLK};
 
 ///////////////// Display Variables ///////////////////////
 unsigned int period = 0;
 bool updateDisplay = 0;
-unsigned int displayHolder[NUM_DIGITS] = {BLANK, BLANK, BLANK, BLANK, BLANK};
+byte displayHolder[NUM_DIGITS] = {BLANK, BLANK, BLANK, BLANK, BLANK};
 
 //                      zero      one       two         three   four      five      six         seven   eight     nine        blank   P R E W_1 W_2
-const int numeral[] = {B1000000, B1111001, B0100100, B0110000, B0011001, B0010010, B0000010, B1111000, B0000000, B0010000,
+const byte numeral[] = {B1000000, B1111001, B0100100, B0110000, B0011001, B0010010, B0000010, B1111000, B0000000, B0010000,
                        // blank        P         R         D         W_1     W_2      C
                        B1111111, B0001100, B1001100, B0100001, B1000011, B1100001, B1000110
                       };
-int currentDigit = 1;
+byte currentDigit = 1;
 
 ///////////////// State machine variables ///////////////////////
-unsigned int state = STATE_IDLE;
-unsigned int prevoiusState = STATE_IDLE;
+byte state = STATE_IDLE;
+byte prevoiusState = STATE_IDLE;
 
 ///////////////// Other variables ///////////////////////
 
@@ -202,6 +206,9 @@ void setup()
   Serial.println("Spot Welder by ideaHex");
   Serial.println("");
 
+//  pinMode(SPARE_DISPLAY, INPUT);
+//  pinMode(RELAY_VPC, INPUT);
+
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(DIGIT0, OUTPUT);
   pinMode(DIGIT1, OUTPUT);
@@ -218,6 +225,7 @@ void setup()
   pinMode(SEGMENTG, OUTPUT);
 
   pinMode(SW_PIN_PWR_CLK, OUTPUT);
+  pinMode(SW_PIN_FOOT, INPUT);
 
   pinMode(SSR_PIN, OUTPUT);
   digitalWrite(SSR_PIN, LOW);
@@ -225,19 +233,21 @@ void setup()
 
   // Timer0 is already used for millis() - we'll just interrupt somewhere
   // in the middle and call the "Compare A" function below
+  // This will interupt about every millisecond.
   OCR0A = 0xAF;
   TIMSK0 |= _BV(OCIE0A);
+
 }
 
 
 void UpdateSwitches()
 {
-  int sw;
+  byte sw;
 
-  for (int row = 0; row < NUM_ROWS; row++)
+  for (byte row = 0; row < NUM_ROWS; row++)
   {
     // Set all rows low except the one we are wanting to check
-    for (int i = 0; i < NUM_ROWS; i++)
+    for (byte i = 0; i < NUM_ROWS; i++)
     {
       if (i == row) digitalWrite(switchRows[i], HIGH);
       else  digitalWrite(switchRows[i], LOW);
@@ -269,7 +279,7 @@ void UpdateSwitches()
 }
 
 // Interrupt is called once a millisecond
-unsigned int multi = 0;
+byte multi = 0;
 SIGNAL(TIMER0_COMPA_vect)
 {
   if (multi++ > 10)
@@ -292,7 +302,7 @@ SIGNAL(TIMER0_COMPA_vect)
 }
 
 // Pass it a digit value 0 - 4
-void enableDigit(int digit)
+void enableDigit(byte digit)
 {
   digitalWrite(DIGIT0, digit == 0);
   digitalWrite(DIGIT1, digit == 1);
@@ -301,7 +311,7 @@ void enableDigit(int digit)
   digitalWrite(DIGIT4, digit == 4);
 }
 
-void writeNumeral(int num)
+void writeNumeral(byte num)
 {
   if (num > NUMERAL_MAX ) num = 10; // Make it blank
   int seg = 0;
@@ -335,18 +345,10 @@ void UpdateEncoder()
     //Serial.println(newPosition);
   }
 }
+
 // the loop function runs over and over again forever
 void loop()
 {
-  //  //  UpdateEncoder();
-  for (int j = 0; j < 9; j++)
-  {
-    Serial.print(switchState[j]);
-    Serial.print(", ");
-    delay(10);
-  }
-  Serial.println("");
-
   switch (state)
   {
     case STATE_IDLE:
@@ -355,6 +357,7 @@ void loop()
         prevoiusState = state;
         Serial.println("Idle");
       }
+
       //      if (displayHolder[4]  == COLON) displayHolder[4] = BLANK;
       //      else displayHolder[4] = COLON;
       displayHolder[4] = COLON;
@@ -403,7 +406,6 @@ void loop()
         switchState[SW_PWR] = SW_UP;
         state = STATE_ACTIVE;
       }
-
       break;
 
     case STATE_CHANGE_PREWELD:
@@ -494,6 +496,7 @@ void loop()
       break;
 
     case STATE_ACTIVE:
+
       if (prevoiusState != state) // First time in so set a few things up
       {
         prevoiusState = state;
@@ -517,9 +520,9 @@ void loop()
         switchState[SW_START] = SW_UP;
         state = STATE_PREWELD;
       }
-      if  (switchState[SW_PIN_FOOT] == SW_REL)
+      if  (switchState[SW_FOOT] == SW_REL)
       {
-        switchState[SW_PIN_FOOT] = SW_UP;
+        switchState[SW_FOOT] = SW_UP;
         state = STATE_PREWELD;
       }
       break;
@@ -556,7 +559,7 @@ void loop()
       {
         elapsedTime = 0;
         prevoiusState = state;
-        //        Serial.println("Dwell");
+        //Serial.println("Dwell");
       }
       if (elapsedTime > dwellTime)state = STATE_WELD;
       if  (switchState[SW_STOP] == SW_REL)
@@ -574,7 +577,7 @@ void loop()
         digitalWrite(SSR_PIN, HIGH);
         tone(BUZZER, TONE_WELD);
         prevoiusState = state;
-        //        Serial.println("Weld");
+        //Serial.println("Weld");
       }
       if (elapsedTime > weldTime)
       {
@@ -594,6 +597,4 @@ void loop()
       }
       break;
   }
-
-
 }
